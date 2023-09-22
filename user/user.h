@@ -1,6 +1,7 @@
 struct stat;
 struct rtcdate;
 struct pstat;
+typedef unsigned int uint;
 
 // system calls
 int fork(void);
