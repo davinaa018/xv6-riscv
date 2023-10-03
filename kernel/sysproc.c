@@ -95,3 +95,15 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_wait2(void)
+{
+  uint64 p;
+  uint64 np;
+  if(argaddr(0, &p) < 0)
+    return -1;
+  if(argaddr(0, &np) < 0)
+    return -1;
+  return wait2(p, np);
+}

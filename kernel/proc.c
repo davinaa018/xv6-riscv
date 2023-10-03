@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "pstat.h"
 
 struct cpu cpus[NCPU];
 
@@ -119,6 +120,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->cputime = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -653,4 +655,49 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int
+wait2(uint64 addr, uint64 addr2){
+	struct proc *np;
+	struct rusage r;
+	int havekids, pid;
+	struct proc *p = myproc();
+	
+	acquire(&wait_lock);
+	
+	for(;;){
+		havekids = 0;
+		for(np = proc; np < &proc[NPROC]; np++){
+		  if(np->parent == p){
+		    acquire(&np->lock);
+		    
+		    havekids = 1;
+		    if(np->state ==ZOMBIE){
+		      pid = np->pid;
+		      r.cputime = np->cputime;
+		      
+		      copyout(p->pagetable, addr2, (char *)&r, sizeof(r));
+		      
+		      if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+				                  sizeof(&np->xstate)) < 0) {
+			    release(&np->lock);
+			    release(&wait_lock);
+			    return -1;
+			  }
+		      freeproc(np);
+		      release(&np->lock);
+		      release(&wait_lock);
+		      return pid;
+		    }
+		    release(&np->lock);
+		}
+	}
+	
+	if(!havekids || p->killed){
+	  release(&wait_lock);
+	  return -1;
+	}
+	sleep(p, &wait_lock);
+	}
 }
