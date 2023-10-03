@@ -50,6 +50,7 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
+  
   if(r_scause() == 8){
     // system call
 
@@ -77,9 +78,11 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
-
+  if(which_dev == 2){
+    //Incrememnt CPUTIME
+  	p->cputime += 1;
+    	yield();
+   }
   usertrapret();
 }
 
@@ -150,9 +153,10 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
-    yield();
-
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING){
+  	myproc()->cputime += 1; //Add CPU
+    	yield();
+}
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
   w_sepc(sepc);

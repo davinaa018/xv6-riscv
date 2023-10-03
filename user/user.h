@@ -1,6 +1,7 @@
 struct stat;
 struct rtcdate;
 struct pstat;
+struct rusage;
 typedef unsigned int uint;
 
 // system calls
@@ -26,6 +27,8 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int getprocs(struct pstat*);
+//User call
+int wait2(int*, struct rusage*);
 
 // ulib.c
 int stat(const char*, struct stat*);
