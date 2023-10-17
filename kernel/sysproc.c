@@ -116,7 +116,23 @@ sys_wait2(void){
 	
 	if(argaddr(0, &p) < 0)
 		return -1;
-	if(argaddr(0, &np) < 0)
+	if(argaddr(1, &np) < 0)
 		return -1;
 	return wait2(p, np);
+}
+
+uint64
+sys_getpriority(void){
+	return myproc()->priority;
+}
+
+uint64
+sys_setpriority(void){
+	int new_priority;
+	if(argint(0, &new_priority) < 0)
+		return -1;
+	if(new_priority < 0 || new_priority > 99)
+		return -1;
+	myproc()->priority = new_priority;
+	return 0;
 }

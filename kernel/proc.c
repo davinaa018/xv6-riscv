@@ -122,7 +122,7 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->cputime = 0; //Initialize cputime for zero
-
+  
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -569,6 +569,7 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        p->readytime = ticks; // Added for task 2 HW3
       }
       release(&p->lock);
     }
@@ -675,6 +676,7 @@ procinfo(uint64 addr)
     procinfo.pid = p->pid;
     procinfo.state = p->state;
     procinfo.size = p->sz;
+    procinfo.priority = p->priority;
     if (p->parent)
       procinfo.ppid = (p->parent)->pid;
     else
