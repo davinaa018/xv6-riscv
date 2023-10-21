@@ -123,6 +123,7 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->cputime = 0;
+  p->readytime = sys_uptime();
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -497,15 +498,10 @@ wait2(uint64 addr, uint64 addr2)
 void
 scheduler(void)
 {
-
   struct proc *p;
   struct cpu *c = mycpu();
-
-
-
   c->proc = 0;
   for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
     if (DEFSCHED == ROUNDROBIN) {
       for(p = proc; p < &proc[NPROC]; p++) {
@@ -520,8 +516,6 @@ scheduler(void)
            c->proc = p;
            swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
            c->proc = 0;
          }
       }
@@ -536,9 +530,7 @@ scheduler(void)
 	int age = sys_uptime() - p->readytime;
         int priority_age = p->priority + age;
 	acquire(&p->lock);
-	//aqui?
 	if (p->state == RUNNABLE && priority_age > max_p_age) {
-	  //highest_pr = p->priority;
           max_p_age = priority_age;
 	  max_proc = p;
 
