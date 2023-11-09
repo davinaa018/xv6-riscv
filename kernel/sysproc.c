@@ -39,17 +39,29 @@ sys_wait(void)
   return wait(p);
 }
 
+//HW4 Implementation
 uint64
 sys_sbrk(void)
 {
   int addr;
   int n;
-
+  int new_sz;
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+  new_sz = addr + n;
+  //EXTRA CREDIT
+  //Check if the new_sz exceeds the maximum user address space
+  if (new_sz > MAXVA)
     return -1;
+  // Check if the new_sz is beyond the current break (sz)
+  if(new_sz > myproc()->sz){
+    // Need to allocate additional memory pages up to new_sz
+    if(uvmalloc(myproc()->pagetable, myproc()->sz, new_sz) < 0){
+      return -1;
+    }
+  }
+  myproc()->sz = new_sz;
   return addr;
 }
 
@@ -135,4 +147,10 @@ sys_setpriority(void){
 		return -1;
 	myproc()->priority = new_priority;
 	return 0;
+}
+
+uint64
+sys_freepmem(void){
+   int res = freepmem();
+   return res;
 }
