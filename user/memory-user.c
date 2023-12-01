@@ -20,9 +20,12 @@ int main(int argc, char *argv[]) {
             printf("malloc failed\n");
 	    exit(-1);
         }
-	for (j = 0; j <= i*1024*1024/4; j++)
+	for (j = 0; j <= i*1024*1024/4; j++){
 	    array[j] = j;
+	}
+	printf("We are here");
 	sleep(50);
+	printf("Now here");
 	printf("freeing %p mebibytes\n", i); 
 	free(array);
 	sleep(50);
@@ -30,4 +33,3 @@ int main(int argc, char *argv[]) {
 
     exit(0);
 }
-

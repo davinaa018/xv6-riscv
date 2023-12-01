@@ -1,7 +1,14 @@
-#include "user.h"
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
 
+int main(){
 
-int main() {
-	printf("up %d clock ticks\n", uptime());
-	exit(0);
+//we will call the function uptime
+unsigned int clk_ticks = uptime();
+
+//this will print the clk_ticks from the previous function
+printf("Up clock ticks: %d\n", clk_ticks);
+exit(0);
+
 }

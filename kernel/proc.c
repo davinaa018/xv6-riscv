@@ -4,8 +4,9 @@
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
-#include "defs.h"
 #include "pstat.h"
+#include "defs.h"
+#include "stat.h"
 
 struct cpu cpus[NCPU];
 
@@ -21,10 +22,9 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
-//HW5
+
 struct mmr_list mmr_list[NPROC*MAX_MMR];
 struct spinlock listid_lock;
-
 
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
@@ -38,7 +38,7 @@ struct spinlock wait_lock;
 void
 proc_mapstacks(pagetable_t kpgtbl) {
   struct proc *p;
-
+  
   for(p = proc; p < &proc[NPROC]; p++) {
     char *pa = kalloc();
     if(pa == 0)
@@ -53,7 +53,7 @@ void
 procinit(void)
 {
   struct proc *p;
-
+  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
@@ -81,6 +81,7 @@ mycpu(void) {
   return c;
 }
 
+
 // Return the current struct proc *, or zero if none.
 struct proc*
 myproc(void) {
@@ -94,7 +95,7 @@ myproc(void) {
 int
 allocpid() {
   int pid;
-
+  
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -112,11 +113,9 @@ allocproc(void)
 {
   struct proc *p;
 
-
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
-      p->readytime = sys_uptime();
       goto found;
     } else {
       release(&p->lock);
@@ -127,8 +126,6 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->cputime = 0;
-  p->readytime = sys_uptime();
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -160,9 +157,34 @@ found:
 static void
 freeproc(struct proc *p)
 {
+
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  for (int i = 0; i < MAX_MMR; i++) {
+	int dofree = 0;
+	if (p->mmr[i].valid == 1) {
+	if (p->mmr[i].flags & MAP_PRIVATE)
+	dofree = 1;
+	else { // MAP_SHARED
+	acquire(&mmr_list[p->mmr[i].mmr_family.listid].lock);
+	if (p->mmr[i].mmr_family.next == &(p->mmr[i].mmr_family)) { // no other family members
+	dofree = 1;
+	release(&mmr_list[p->mmr[i].mmr_family.listid].lock);
+	dealloc_mmr_listid(p->mmr[i].mmr_family.listid);
+	
+  } else { // remove p from mmr family
+	(p->mmr[i].mmr_family.next)->prev = p->mmr[i].mmr_family.prev;
+	(p->mmr[i].mmr_family.prev)->next = p->mmr[i].mmr_family.next;
+	release(&mmr_list[p->mmr[i].mmr_family.listid].lock);
+  }
+  }
+  for (uint64 addr = p->mmr[i].addr; addr < p->mmr[i].addr + p->mmr[i].length; addr += PGSIZE)
+  if (walkaddr(p->pagetable, addr))
+	uvmunmap(p->pagetable, addr, 1, dofree);
+	}
+  }
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -235,12 +257,11 @@ uchar initcode[] = {
 void
 userinit(void)
 {
-  struct proc *p;	
+  struct proc *p;
+
   p = allocproc();
   initproc = p;
-
-  p->cur_max = MAXVA - 2*PGSIZE;//HW5
-
+  
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
@@ -254,6 +275,9 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  
+  //HMW5------
+  p->cur_max = MAXVA - 2*PGSIZE;
 
   release(&p->lock);
 }
@@ -293,12 +317,14 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, 0, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
   }
   np->sz = p->sz;
+  //HMW5------------
+  np->cur_max = p->cur_max;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -315,6 +341,46 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
+  //HMW5----------------------------------------------
+  // Copy mmr table from parent to child
+memmove((char*)np->mmr, (char *)p->mmr, MAX_MMR*sizeof(struct mmr));
+// For each valid mmr, copy memory from parent to child, allocating new memory for
+// private regions but not for shared regions, and add child to family for shared regions.
+for (int i = 0; i < MAX_MMR; i++) {
+if(p->mmr[i].valid == 1) {
+if(p->mmr[i].flags & MAP_PRIVATE) {
+for (uint64 addr = p->mmr[i].addr; addr < p->mmr[i].addr+p->mmr[i].length; addr += PGSIZE)
+if(walkaddr(p->pagetable, addr))
+if(uvmcopy(p->pagetable, np->pagetable, addr, addr+PGSIZE) < 0) {
+freeproc(np);
+release(&np->lock);
+return -1;
+}
+np->mmr[i].mmr_family.proc = np;
+np->mmr[i].mmr_family.listid = -1;
+np->mmr[i].mmr_family.next = &(np->mmr[i].mmr_family);
+np->mmr[i].mmr_family.prev = &(np->mmr[i].mmr_family);
+} else { // MAP_SHARED
+for (uint64 addr = p->mmr[i].addr; addr < p->mmr[i].addr+p->mmr[i].length; addr += PGSIZE)
+if(walkaddr(p->pagetable, addr))
+if(uvmcopyshared(p->pagetable, np->pagetable, addr, addr+PGSIZE) < 0) {
+freeproc(np);
+release(&np->lock);
+return -1;
+}
+// add child process np to family for this mapped memory region
+np->mmr[i].mmr_family.proc = np;
+np->mmr[i].mmr_family.listid = p->mmr[i].mmr_family.listid;
+acquire(&mmr_list[p->mmr[i].mmr_family.listid].lock);np->mmr[i].mmr_family.next = p->mmr[i].mmr_family.next;
+p->mmr[i].mmr_family.next = &(np->mmr[i].mmr_family);
+np->mmr[i].mmr_family.prev = &(p->mmr[i].mmr_family);
+if (p->mmr[i].mmr_family.prev == &(p->mmr[i].mmr_family))
+p->mmr[i].mmr_family.prev = &(np->mmr[i].mmr_family);
+release(&mmr_list[p->mmr[i].mmr_family.listid].lock);
+}
+}
+}
+  //------------------------------------------------
 
   release(&np->lock);
 
@@ -376,7 +442,7 @@ exit(int status)
 
   // Parent might be sleeping in wait().
   wakeup(p->parent);
-
+  
   acquire(&p->lock);
 
   p->xstate = status;
@@ -432,7 +498,7 @@ wait(uint64 addr)
       release(&wait_lock);
       return -1;
     }
-
+    
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
@@ -445,118 +511,32 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-int
-wait2(uint64 addr, uint64 addr2)
-{
-  struct proc *np;
-  struct rusage cru;
-  int havekids, pid;
-  struct proc *p = myproc();
-
-  acquire(&wait_lock);
-
-  for(;;){
-    // Scan through table looking for exited children.
-    havekids = 0;
-    for(np = proc; np < &proc[NPROC]; np++){
-      if(np->parent == p){
-        // make sure the child isn't still in exit() or swtch().
-        acquire(&np->lock);
-
-        havekids = 1;
-        if(np->state == ZOMBIE){
-          // Found one.
-          pid = np->pid;
-	  cru.cputime = np->cputime;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
-                                  sizeof(np->xstate)) < 0) {
-            release(&np->lock);
-            release(&wait_lock);
-            return -1;
-          }
-	  if(addr2 != 0 && copyout(p->pagetable, addr2, (char *)&cru,
-                                  sizeof(cru)) < 0) {
-            release(&np->lock);
-            release(&wait_lock);
-            return -1;
-          }
-          freeproc(np);
-          release(&np->lock);
-          release(&wait_lock);
-          return pid;
-        }
-        release(&np->lock);
-      }
-    }
-
-    // No point waiting if we don't have any children.
-    if(!havekids || p->killed){
-      release(&wait_lock);
-      return -1;
-    }
-
-    // Wait for a child to exit.
-    sleep(p, &wait_lock);  //DOC: wait-sleep
-  }
-}
-
-
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  
   c->proc = 0;
   for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    if (DEFSCHED == ROUNDROBIN) {
-      for(p = proc; p < &proc[NPROC]; p++) {
-         acquire(&p->lock);
-         if(p->state == RUNNABLE) {
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
-           p->readytime = sys_uptime();
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
-           p->state = RUNNING;
-           c->proc = p;
-           swtch(&c->context, &p->context);
-
-           c->proc = 0;
-         }
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
       }
       release(&p->lock);
-    } else if(DEFSCHED == PRIORITY){
-      // Keep track of highest priority and the process
-      //int highest_pr = 0;
-      struct proc *max_proc;
-      max_proc = 0;
-      int max_p_age = 0;
-      for(p = proc; p < &proc[NPROC]; p++){
-	int age = sys_uptime() - p->readytime;
-        int priority_age = p->priority + age;
-	acquire(&p->lock);
-	if (p->state == RUNNABLE && priority_age > max_p_age) {
-          max_p_age = priority_age;
-	  max_proc = p;
-
-	}
-	release(&p->lock);
-      }
-
-      if (max_proc){
-	acquire(&max_proc->lock);
-	if (max_proc->state == RUNNABLE){
-	  max_proc->readytime = sys_uptime();
-	  max_proc->state = RUNNING;
-	  c->proc = max_proc;
-	  swtch(&c->context, &max_proc->context);
-	  c->proc = 0;
-	  release(&max_proc->lock);
-	} else {
-	  release(&max_proc->lock);
-	}
-      }
     }
   }
 }
@@ -626,7 +606,7 @@ void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-
+  
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -761,14 +741,13 @@ procinfo(uint64 addr)
   struct proc *thisproc = myproc();
   struct pstat procinfo;
   int nprocs = 0;
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc; p < &proc[NPROC]; p++){ 
     if(p->state == UNUSED)
       continue;
     nprocs++;
     procinfo.pid = p->pid;
     procinfo.state = p->state;
     procinfo.size = p->sz;
-    procinfo.priority = p->priority;
     if (p->parent)
       procinfo.ppid = (p->parent)->pid;
     else
@@ -781,59 +760,50 @@ procinfo(uint64 addr)
   }
   return nprocs;
 }
-
+//HMW5-----------------------------------------------
 // Initialize mmr_list
-
 void
 mmrlistinit(void)
 {
-  struct mmr_list *pmmrlist;
-  initlock(&listid_lock,"listid");
-  for (pmmrlist = mmr_list; pmmrlist < &mmr_list[NPROC*MAX_MMR]; pmmrlist++) {
-     initlock(&pmmrlist->lock, "mmrlist");
-     pmmrlist->valid = 0;
-
-  }
-
+	struct mmr_list *pmmrlist;
+	initlock(&listid_lock,"listid");
+	for (pmmrlist = mmr_list; pmmrlist < &mmr_list[NPROC*MAX_MMR]; pmmrlist++) {
+	initlock(&pmmrlist->lock, "mmrlist");
+	pmmrlist->valid = 0;
+	}
 }
-
 // find the mmr_list for a given listid
 struct mmr_list*
 get_mmr_list(int listid) {
-  acquire(&listid_lock);
-  if (listid >=0 && listid < NPROC*MAX_MMR && mmr_list[listid].valid) {
-    release(&listid_lock);
-    return(&mmr_list[listid]);
-  }
-  else {
-    release(&listid_lock);
-    return 0;
-  }
+	acquire(&listid_lock);
+	if (listid >=0 && listid < NPROC*MAX_MMR && mmr_list[listid].valid) {
+	release(&listid_lock);
+	return(&mmr_list[listid]);
+	}
+	else {
+	release(&listid_lock);
+	return 0;
+	}
 }
-
 // free up entry in mmr_list array
 void
 dealloc_mmr_listid(int listid) {
-  acquire(&listid_lock);
-  mmr_list[listid].valid = 0;
-  release(&listid_lock);
-
+	acquire(&listid_lock);
+	mmr_list[listid].valid = 0;
+	release(&listid_lock);
 }
-
 // find an unused entry in the mmr_list array
 int
 alloc_mmr_listid() {
-  acquire(&listid_lock);
-  int listid = -1;
-
-  for (int i = 0; i < NPROC*MAX_MMR; i++) {
-    if (mmr_list[i].valid == 0) {
-    mmr_list[i].valid = 1;
-    listid = i;
-    break;
-   }
-
-  }
-  release(&listid_lock);
-  return(listid);
+	acquire(&listid_lock);
+	int listid = -1;
+	for (int i = 0; i < NPROC*MAX_MMR; i++) {
+	if (mmr_list[i].valid == 0) {
+	mmr_list[i].valid = 1;
+	listid = i;
+	break;
+	}
+	}
+	release(&listid_lock);
+	return(listid);
 }

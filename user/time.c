@@ -4,38 +4,51 @@
 #include "kernel/param.h"
 #include "kernel/pstat.h"
 
-
+int *argv_sec;
+struct rusage argv_sec2;
+char *args[1000];
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        fprintf(2, "Usage: time1 <command>\n");
-        exit(1);
-    }
-
-    uint start_time = uptime();
-    int pid = fork();
-
-    if (pid == 0) {
-        // In the child process, execute the specified command
-        exec(argv[1], argv + 1);  // Pass all arguments to the command except the program name
-        fprintf(2, "Failed to execute %s\n", argv[1]);
-        exit(1);
-    } else if (pid == -1) {
-        fprintf(2, "Fork failed\n");
-        exit(1);
-    }
-
- 
-    struct rusage r;
-    int wait_pid = wait2(0, &r);
-    uint end_time = uptime();
-
-   if (wait_pid < 0){
-   	fprintf(2, "Failed to wait for child process\n");
-   	exit(1);
-   }
-   fprintf(1, "elapsed time: %d ticks, cpu time: %d ticks, %d%% CPU\n", end_time - start_time, r.cputime, (r.cputime * 100) / (end_time - start_time) );
-
-    exit(0);
+	//we will do a traverse through argv, shiftting through 
+	for(int i = 1; i < argc; i++){
+		args[i-1] = argv[i];
+	}
+	
+	args[argc - 1] = 0;
+	
+	//Start measuring the CPU time
+	int start_ticks = uptime();
+	int pid = fork();
+	
+	if(pid < 0) {
+		printf("Fork failed\n");
+		exit(1);
+	}
+	
+	if(pid == 0){
+		//child processor: execute the given command
+		exec(args[0], args);
+		
+		//if the exec fails, we will exit
+		printf("Failed to execute");
+		exit(1);
+	}
+	else{
+		//parent process: wait for the child to finish
+		if(wait2(0, &argv_sec2) < 0){
+			printf("init: wait2 failed\n");
+		}
+		
+		//we will stop measuring the CPU time
+		int end_ticks = uptime();
+		
+		//calculate and print elapsed time and %CPU
+		int elapsed_time = end_ticks - start_ticks;
+		int cpu_time = argv_sec2.cputime;
+		int cpu_percentage = (cpu_time * 100) / elapsed_time;
+		
+		printf("Elapsed time: %d ticks, cpu time: %d ticks, %d%% CPU\n", elapsed_time, cpu_time, cpu_percentage);
+		
+	}
+	exit(0);
 }
-

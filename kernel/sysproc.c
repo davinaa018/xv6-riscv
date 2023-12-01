@@ -6,7 +6,6 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
-#include "pstat.h"
 
 uint64
 sys_exit(void)
@@ -39,30 +38,26 @@ sys_wait(void)
   return wait(p);
 }
 
-//HW4 Implementation
 uint64
 sys_sbrk(void)
 {
   int addr;
   int n;
-  int new_sz;
+
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  new_sz = addr + n;
-  //EXTRA CREDIT
-  //Check if the new_sz exceeds the maximum user address space
-  if (new_sz > MAXVA)
-    return -1;
-  // Check if the new_sz is beyond the current break (sz)
-  if(new_sz > myproc()->sz){
-    // Need to allocate additional memory pages up to new_sz
-    if(uvmalloc(myproc()->pagetable, myproc()->sz, new_sz) < 0){
-      return -1;
-    }
+  
+  //if(growproc(n) < 0)
+    //return -1;
+
+  int newsz = addr + n;
+  if(newsz < TRAPFRAME){
+  	//allocate more virtual mem
+  	myproc()->sz = newsz;
+  	return addr;
   }
-  myproc()->sz = new_sz;
-  return addr;
+  return -1;
 }
 
 uint64
@@ -119,38 +114,4 @@ sys_getprocs(void)
   if (argaddr(0, &addr) < 0)
     return -1;
   return(procinfo(addr));
-}
-
-uint64
-sys_wait2(void){
-	uint64 p;
-	uint64 np;
-	
-	if(argaddr(0, &p) < 0)
-		return -1;
-	if(argaddr(1, &np) < 0)
-		return -1;
-	return wait2(p, np);
-}
-
-uint64
-sys_getpriority(void){
-	return myproc()->priority;
-}
-
-uint64
-sys_setpriority(void){
-	int new_priority;
-	if(argint(0, &new_priority) < 0)
-		return -1;
-	if(new_priority < 0 || new_priority > 99)
-		return -1;
-	myproc()->priority = new_priority;
-	return 0;
-}
-
-uint64
-sys_freepmem(void){
-   int res = freepmem();
-   return res;
 }

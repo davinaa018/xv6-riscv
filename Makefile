@@ -28,7 +28,7 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
-  $K/virtio_disk.o 
+  $K/virtio_disk.o
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -132,17 +132,10 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
-	$U/_sleep\
-	$U/_ps\
-	$U/_pstree\
-	$U/_pstest\
-	$U/_uptime\
-	$U/_matmul\
-	$U/_time1\
-	$U/_time\
-	$U/_pexec\
-	$U/_free\
-	$U/_memory-user\
+	$U/_private\
+	$U/_prodcons1\
+	$U/_prodcons2\
+	$U/_prodcons3\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

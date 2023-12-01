@@ -29,7 +29,6 @@ main()
     fileinit();      // file table
     virtio_disk_init(); // emulated hard disk
     userinit();      // first user process
-    mmrlistinit();   //HW5
     __sync_synchronize();
     started = 1;
   } else {
@@ -42,5 +41,7 @@ main()
     plicinithart();   // ask PLIC for device interrupts
   }
 
-  scheduler();        
+  scheduler();   
+
+  mmrlistinit(); 
 }
