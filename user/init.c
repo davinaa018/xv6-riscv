@@ -8,7 +8,6 @@
 #include "kernel/file.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
-
 char *argv[] = { "sh", 0 };
 
 int

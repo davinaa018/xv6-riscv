@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 
+
 uint64
 sys_exit(void)
 {
@@ -114,4 +115,28 @@ sys_getprocs(void)
   if (argaddr(0, &addr) < 0)
     return -1;
   return(procinfo(addr));
+}
+
+uint64
+sys_sem_init(void)
+{
+  return 0;
+}
+
+uint64
+sys_sem_destroy(void)
+{
+  return 0;
+}
+
+uint64 
+sys_sem_wait(void)
+{
+  return 0;
+}
+
+uint64
+sys_sem_post(void)
+{
+  return 0;
 }
